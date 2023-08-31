@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: my-app
+  name: my-app2
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: my-app
+      app: my-app2
   template:
     metadata:
       labels:
-        app: my-app
+        app: my-app2
     spec:
       containers:
-      - name: my-app-container
+      - name: my-app-container2
         image: madhu1607/gactions-helm
         ports:
         - containerPort: 8080
@@ -22,10 +22,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: my-app-service
+  name: my-app-service2
 spec:
   selector:
-    app: my-app
+    app: my-app2
   ports:
     - protocol: TCP
       port: 8080
