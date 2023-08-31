@@ -1,0 +1,345 @@
+COMPLETE CI CD using Jenkins
+
+#STEP 1:
+
+   1)Clone any sample springboot app in VSC  (refer: https://github.com/Madhumitha167/demoAPI.git)
+   2)Install helm on ur localmachine 
+(For windows --> Go to offical helm page --> Download binary --> extract it --> set the path in environmental variable )
+   3) i) To create a helm chart, 
+           helm create chartname
+        (you will see a chart created with several files and sub directories)
+     ii) Open values.yaml file and make the necessary changes 
+
+values.yaml
+..........................................................................................
+replicaCount: 1
+image:
+  repository: 570572795477.dkr.ecr.us-east-1.amazonaws.com/my-helm-repo    //UPDATE HERE
+  pullPolicy: IfNotPresent
+  tag: "latest" //UPDATE THE TAG
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+service:
+  type: LoadBalancer // UPDATE HERE
+  port: 8080  // UPDATE HERE
+ingress:
+  enabled: false
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths: []
+  tls: []
+resources: {}
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+nodeSelector: {}
+tolerations: []
+affinity: {}
+..........................................................................................................................
+
+   iii)go to deployment.yaml
+
+.................................................................................................................................
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "springboot.fullname" . }}
+  labels:
+    {{- include "springboot.labels" . | nindent 4 }}
+spec:
+{{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+{{- end }}
+  selector:
+    matchLabels:
+      {{- include "springboot.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+    {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      labels:
+        {{- include "springboot.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "springboot.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}"   //#update here
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080     #update here
+              protocol: TCP           #comment it
+              #livenessProbe:           #comment it
+              #httpGet:           #comment it
+              #path: /           #comment it
+              #port: http           #comment it
+              #readinessProbe:           #comment it
+              #httpGet:           #comment it
+              #path: /           #comment it
+              #port: http           #comment it
+          resources:
+            {{- toYaml .Values.resources | nindent 12  }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+........................................................................
+
+   4) Push the code to github repository
+
+
+#STEP 2:
+
+
+Create a ec2 instance (ubuntu, t2.large) to install jenkins, docker ,sonarqube , awscli , kubectl , eksctl , helm
+
+Connect to your ec2 instance and execute the following
+
+   1) Install jenkins
+ 
+(Jenkins requires java so first install java)
+
+sudo apt update
+sudo apt install openjdk-17-jre
+java -version
+
+(Installing jenkins)
+
+curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee \
+  /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
+  https://pkg.jenkins.io/debian-stable binary/ | sudo tee \
+  /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt-get update
+sudo apt-get install jenkins
+sudo systemctl status jenkins 
+
+   2) Install Docker
+
+sudo apt-get update
+sudo apt-get install docker.io -y
+sudo usermod -aG docker $USER
+sudo chmod 777 /var/run/docker.sock 
+sudo systemctl status docker
+
+   3) Install SonarQube
+
+(As we have installed docker, we can install sonarqube using docker)
+ sudo docker pull sonarqube:lts-community
+ docker run -d --name sonar1 -p 9000:9000 sonarqube:lts-community
+(we can access sonarqube using public IP and port 9000)
+
+
+   4) Install aws cli
+
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" 
+sudo apt install unzip
+sudo unzip awscliv2.zip  
+sudo ./aws/install
+
+aws --version
+
+   5) Create a EKS Cluster
+
+i) install kubectl 
+
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin
+kubectl version --client
+
+ii) install eksctl
+
+curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+sudo mv /tmp/eksctl /usr/local/bin
+eksctl version
+
+iii) Create an IAM role with the following policies 
+       EC2 full access
+       VPC full access
+       IAM full access
+       Cloudformation access 
+and attach it to the instance (Ec2 dashboard --> instance --> actions -->security --> modify IAM role --> select this role)
+
+iv) Create a cluster using 
+
+eksctl create cluster --name cluster_name  \
+--region aws_region \
+--node-type instance_type \
+--nodes-min 2 \
+--nodes-max 2 \ 
+--zones availability-zone1,availability-zone2               // this will take 20 minutes
+
+eg:
+
+eksctl create cluster --name democluster --region us-east-1 --node-type t2.medium --nodes-min 2 --nodes-max 2 --zones us-east-1a,us-east-1b
+
+(To check if the nodes and cluster are created,
+
+cat /root/.kube/config   #it will describe the kubernetes configuration
+kubectl get nodes
+eksctl get cluster --region us-east-1 )
+
+aws eks --region aws_region update-kubeconfig --name cluster_name
+
+   6) Install helm 
+
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+chmod 700 get_helm.sh
+./get_helm.sh
+
+Create a namespace so that we can deploy inside that
+
+kubectl create ns namespace_name
+
+   7) Now, go to aws dashboard and create an ECR repository (give a name and keep it as private)
+
+
+#STEP 3:
+
+
+Go to jenkins and follow these steps
+
+(You can access jenkins using public IP and port 8080)
+
+Initial admin password can be found in 
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword 
+
+
+ click on install suggested plugins and continue 
+ You can either create a new admin user or continue as admin .. for either case save the username password in a notepad;)
+
+   1) (For this project we need several plugins and tools)
+                                                                   
+              Manage Jenkins --> Plugins --> Available plugins --> (Install without restart)
+                                                                   1)SonarQube Scanner 
+                                                                   2)Docker
+                                                                     Docker Commons
+                                                                     Docker Pipeline
+                                                                     Docker API
+                                                                     Docker-build-step
+
+              Manage Jenkins --> Tools --> install jdk,maven,docker(give a name and install automatically)
+
+
+   2) You need to setup credentials for sonarqube 
+   
+ i) Login to sonarqube ( publicip:9000 ) with both username and password as admin then u have to change password
+    My account --> Security --> Give a name for your token --> Generate token (copy the token)
+
+ ii) Now go to Jenkins -->Manage jenkins -->Credentials --> Secret text --> give name as sonar-token and paste the token value in secrets (id  and    description is optional u can give sonartoken there also)
+ 
+
+now that we have installed plugins , tools and configures credentials , we can create a pipeline)
+
+Dashboard --> New item --> Give name and choose pipeline --> create 
+
+pipeline script
+
+
+pipeline {
+    agent any
+    tools{
+        jdk 'jdk17'
+        maven 'maven3'
+    }
+    environment {
+        registry = "570572795477.dkr.ecr.us-east-1.amazonaws.com/my-helm-repo" //ur ecr
+        aws_region = "us-east-1"   //ur aws region
+        eks_cluster = "helmcluster1"  // ur cluster
+    }
+
+    stages {
+        stage('checkout') {
+            steps {
+                git branch: 'master', url: 'https://github.com/MahaLakshmi-2002/helm1.git  //update your repo
+            }
+        }
+        stage("Sonarqube analysis"){
+            environment{
+                SONAR_URL = "http://54.146.77.82:9000/"  //ur sonarqube url
+            }
+            steps{
+               withCredentials([string(credentialsId:'sonar-token', variable: 'SONAR_TOKEN')]){
+                 sh "mvn sonar:sonar -Dsonar.login=$SONAR_TOKEN -Dsonar.host.url=${SONAR_URL}"
+            }
+            }
+        }
+        stage('build') {
+            steps{
+                sh "mvn clean install"
+                
+            }
+        }
+    
+        stage('build image') {
+            steps {
+                script {
+                    dockerImage = docker.build registry
+                }
+            }
+        }
+        stage('push image') {
+            steps {
+                script {
+                    sh "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 570572795477.dkr.ecr.us-east-1.amazonaws.com"
+                    sh 'docker push 570572795477.dkr.ecr.us-east-1.amazonaws.com/my-helm-repo'
+                }
+            }
+        }
+        stage('helm deploy') {
+            steps {
+                script {
+                     sh "aws eks --region $aws_region update-kubeconfig --name $eks_cluster"
+                     sh "helm upgrade releaseone --install chart3 --namespace helm"
+                }
+            }
+        }
+    }
+}
+
+
+Once the build is success, go to ur ec2 instance to check if your app is deployed successfully
+
+i)kubectl get pods -n namespace
+--------
+If you are facing any issues check logs, 
+       kubectl logs pod_name -n namespace
+       kubectl describe pod_name -n namespace
+-------
+ii)kubectl get svc -n namespace
+(This will give you the external IP , access your application with that url:8080)
+
+
+
+
