@@ -1,6 +1,6 @@
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   workflow_dispatch:
 jobs:
   build:
@@ -14,7 +14,7 @@ jobs:
         distribution: 'temurin'
         cache: maven
     - name: Build with Maven
-      run: mvn -B package --file Maven/pom.xml
+      run: mvn -B package --file pom.xml
     - name: Log in to Docker Hub
       uses: docker/login-action@v1
       with:
