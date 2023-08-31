@@ -4,67 +4,70 @@ pipeline {
         jdk 'jdk17'
         maven 'maven3'
     }
+    environment {
+    awsRegion = "us-east-1"
+    eksClusterName = "democluster"
+    }
     stages{
         stage("Checkout"){
             steps{
-                git branch: 'main', url: 'https://github.com/Madhumitha167/demoAPI.git'
+                git branch: 'master', url: 'https://github.com/Madhumitha167/springboot-helm-cicd.git'
             }
         }
         stage("Compile"){
             steps{
-                dir('demoApi') {
-                  sh "mvn clean compile"
-              }
+                sh "mvn clean compile"
             }
         }
-        stage("Test Cases"){
+        stage("Test"){
             steps{
-                dir('demoApi'){
-                  sh "mvn test"
-                }
+                sh "mvn test"
             }
         }
         stage("Sonarqube analysis"){
             environment{
-                SONAR_URL = "http://13.212.27.88:9000/"
+                SONAR_URL = "http://54.237.2.69:9000/"
             }
             steps{
-                 dir('demoApi'){
-                   withCredentials([string(credentialsId:'Sonar-token', variable: 'SONAR_TOKEN')]){
-                   sh "mvn sonar:sonar -Dsonar.login=$SONAR_TOKEN -Dsonar.host.url=${SONAR_URL}"
-                   }
-                       
-                }
+               withCredentials([string(credentialsId:'sonar-token', variable: 'SONAR_TOKEN')]){
+                 sh "mvn sonar:sonar -Dsonar.login=$SONAR_TOKEN -Dsonar.host.url=${SONAR_URL}"
+            }
             }
         }
         stage("Build"){
             steps{
-                dir('demoApi'){
                   sh "mvn clean install"
-                }
             }
         }
         stage("OWASP Dependency Check"){
             steps{
-                 dir('demoApi'){
-                   dependencyCheck additionalArguments: '--scan ./ ' , odcInstallation: 'Dp-check'
-                   dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                 }
+               dependencyCheck additionalArguments: '--scan ./ ' , odcInstallation: 'dp-check'
+               dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
         stage("Build and push docker images"){
             steps{
-                  script{
-                    withDockerRegistry(credentialsId: 'Docker-credentials', toolName: 'docker') {
-                    dir('demoApi'){
-                     sh "docker build -t image1 ." 
-                     sh "docker tag image1 madhu1607/basic:latest "
-                     sh "docker push madhu1607/basic:latest"
-                     sh "docker run -d -p 8070:8080 madhu1607/basic"
+                script{
+                  withDockerRegistry(credentialsId: 'docker-credentials', toolName: 'docker') {
+                     sh "docker build -t springboot ." 
+                     sh "docker tag springboot madhu1607/newspringbootapp:latest "
+                     sh "docker push madhu1607/newspringbootapp:latest"
                     }  
-                    }
                 }
             }
+        }
+        stage ('Helm Deploy') {
+          steps {
+            script {
+                sh "aws eks --region $awsRegion update-kubeconfig --name $eksClusterName"
+                sh "helm upgrade finalrelease --install chart1 --namespace helm"
+                }
+            }
+        }
+             
+    }
+}
+
         }
         
     }
